@@ -311,7 +311,7 @@ def two_stage_reconciliation(bank_file, ledger1_file, ledger2_file, output_file)
     matched_stage1_count = len(matched_bank_stage1)
     unmatched_stage1_count = total_bank - matched_stage1_count
     
-    print(f"\nStage 1 Results:")
+    print(f"\n✅ Stage 1 Results:")
     print(f"   Total Bank records: {total_bank}")
     print(f"   Matched with Ledger 1: {matched_stage1_count}")
     print(f"   Unmatched (going to Stage 2): {unmatched_stage1_count}")
@@ -328,7 +328,7 @@ def two_stage_reconciliation(bank_file, ledger1_file, ledger2_file, output_file)
     bank_df['Status_2'] = ''
     
     if len(bank_unmatched_stage1) == 0:
-        print("All bank records matched in Stage 1. No Stage 2 needed.")
+        print("✅ All bank records matched in Stage 1. No Stage 2 needed.")
         matched_stage2_count = 0
         unmatched_stage2_count = 0
         matched_ledger2 = []
@@ -358,7 +358,7 @@ def two_stage_reconciliation(bank_file, ledger1_file, ledger2_file, output_file)
         matched_stage2_count = len(matched_bank_stage2_indices)
         unmatched_stage2_count = unmatched_stage1_count - matched_stage2_count
         
-        print(f"\nStage 2 Results:")
+        print(f"\n✅ Stage 2 Results:")
         print(f"   Unmatched from Stage 1: {unmatched_stage1_count}")
         print(f"   Matched with Ledger 2: {matched_stage2_count}")
         print(f"   Still Unmatched: {unmatched_stage2_count}")
@@ -369,23 +369,23 @@ def two_stage_reconciliation(bank_file, ledger1_file, ledger2_file, output_file)
     print("="*70)
     print(f"\nBANK STATEMENT:")
     print(f"   Total records: {total_bank}")
-    print(f"   + Matched in Stage 1 (Ledger 1): {matched_stage1_count} ({matched_stage1_count/total_bank*100:.1f}%)")
-    print(f"   + Matched in Stage 2 (Ledger 2): {matched_stage2_count} ({matched_stage2_count/total_bank*100:.1f}%)")
-    print(f"   - Still Unmatched: {unmatched_stage2_count} ({unmatched_stage2_count/total_bank*100:.1f}%)")
+    print(f"   ├─ Matched in Stage 1 (Ledger 1): {matched_stage1_count} ({matched_stage1_count/total_bank*100:.1f}%)")
+    print(f"   ├─ Matched in Stage 2 (Ledger 2): {matched_stage2_count} ({matched_stage2_count/total_bank*100:.1f}%)")
+    print(f"   └─ Still Unmatched: {unmatched_stage2_count} ({unmatched_stage2_count/total_bank*100:.1f}%)")
     print(f"\n   Overall Match Rate: {(matched_stage1_count + matched_stage2_count)/total_bank*100:.1f}%")
     
     print(f"\nLEDGER 1 (Primary):")
     print(f"   Total records: {len(ledger1_df)}")
-    print(f"   + Matched with Bank: {len(matched_ledger1)}")
-    print(f"   - Unmatched: {len(ledger1_df) - len(matched_ledger1)}")
+    print(f"   ├─ Matched with Bank: {len(matched_ledger1)}")
+    print(f"   └─ Unmatched: {len(ledger1_df) - len(matched_ledger1)}")
     
     print(f"\nLEDGER 2 (Secondary/General):")
     print(f"   Total records: {len(ledger2_df)}")
-    print(f"   + Matched with Bank: {len(matched_ledger2)}")
-    print(f"   - Unmatched: {len(ledger2_df) - len(matched_ledger2)}")
+    print(f"   ├─ Matched with Bank: {len(matched_ledger2)}")
+    print(f"   └─ Unmatched: {len(ledger2_df) - len(matched_ledger2)}")
     
     # ========== SAVE RESULTS ==========
-    print(f"\nSaving results to: {output_file}")
+    print(f"\n💾 Saving results to: {output_file}")
     
     # Add gap columns for visual separation with space names to appear blank
     for df in [bank_df, ledger1_df, ledger2_df]:
@@ -400,104 +400,98 @@ def two_stage_reconciliation(bank_file, ledger1_file, ledger2_file, output_file)
         
         summary_data = {
             'Metric': [
-                'BANK STATEMENT SUMMARY',
-                ' ',
+                '═══════════════════════════════════════════════════',
+                '                 BANK STATEMENT SUMMARY',
+                '═══════════════════════════════════════════════════',
+                '',
                 'Total Bank Statement Records',
-                ' ',
-                'STAGE 1: Matching with Primary Ledger',
+                '',
+                '--- STAGE 1: Matching with Primary Ledger ---',
                 'Matched with Ledger 1',
                 'Unmatched with Ledger 1',
-                ' ',
                 'Stage 1 Match Rate',
-                ' ',
-                ' ',
-                'STAGE 2: Matching Unmatched with Secondary Ledger',
+                '',
+                '--- STAGE 2: Matching Unmatched with Secondary Ledger ---',
                 'Matched with Ledger 2',
                 'Still Unmatched after Stage 2',
-                ' ',
                 'Stage 2 Match Rate (of unmatched)',
-                ' ',
-                ' ',
-                'OVERALL BANK RECONCILIATION',
+                '',
+                '--- OVERALL BANK RECONCILIATION ---',
                 'Total Matched (Stage 1 + Stage 2)',
                 'Total Unmatched',
-                ' ',
                 'Overall Match Rate',
-                ' ',
-                ' ',
-                ' ',
-                'PRIMARY LEDGER (LEDGER 1) SUMMARY',
-                ' ',
+                '',
+                '',
+                '════════════════════════════════',
+                '            PRIMARY LEDGER (LEDGER 1) SUMMARY',
+                '════════════════════════════════',
+                '',
                 'Total Ledger 1 Records',
-                ' ',
-                'STAGE 1: Matching with Bank Statement',
+                '',
+                '--- STAGE 1: Matching with Bank Statement ---',
                 'Matched with Bank Statement',
                 'Unmatched with Bank Statement',
-                ' ',
                 'Ledger 1 Match Rate',
-                ' ',
-                ' ',
-                ' ',
-                'SECONDARY LEDGER (LEDGER 2) SUMMARY',
-                ' ',
+                '',
+                '',
+                '══════════════════════════════════',
+                '          SECONDARY LEDGER (LEDGER 2) SUMMARY',
+                '══════════════════════════════════',
+                '',
                 'Total Ledger 2 Records',
-                ' ',
-                'STAGE 2: Matching with Unmatched Bank Records',
+                '',
+                '--- STAGE 2: Matching with Unmatched Bank Records ---',
                 'Matched with Bank Statement',
                 'Unmatched with Bank Statement',
-                ' ',
                 'Ledger 2 Match Rate',
-                ' ',
+                '',
             ],
             'Value': [
-                ' ',
-                ' ',
+                '',
+                '',
+                '',
+                '',
                 total_bank,
-                ' ',
-                ' ',
+                '',
+                '',
                 matched_stage1_count,
                 unmatched_stage1_count,
-                ' ',
                 f"{(matched_stage1_count/total_bank*100) if total_bank > 0 else 0:.2f}%",
-                ' ',
-                ' ',
-                ' ',
+                '',
+                '',
                 matched_stage2_count,
                 unmatched_stage2_count,
-                ' ',
                 f"{(matched_stage2_count/unmatched_stage1_count*100) if unmatched_stage1_count > 0 else 0:.2f}%",
-                ' ',
-                ' ',
-                ' ',
+                '',
+                '',
                 matched_stage1_count + matched_stage2_count,
                 unmatched_stage2_count,
-                ' ',
                 f"{((matched_stage1_count + matched_stage2_count)/total_bank*100) if total_bank > 0 else 0:.2f}%",
-                ' ',
-                ' ',
-                ' ',
-                ' ',
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
                 len(ledger1_df),
-                ' ',
-                ' ',
-                ' ',
+                '',
+                '',
                 len(matched_ledger1),
                 ledger1_unmatched,
-                ' ',
                 f"{(len(matched_ledger1)/len(ledger1_df)*100) if len(ledger1_df) > 0 else 0:.2f}%",
-                ' ',
-                ' ',
-                ' ',
-                ' ',
+                '',
+                '',
+                '',
+                '',
+                '',
+                '',
                 len(ledger2_df),
-                ' ',
-                ' ',
-                ' ',
+                '',
+                '',
                 len(matched_ledger2),
                 ledger2_unmatched,
-                ' ',
                 f"{(len(matched_ledger2)/len(ledger2_df)*100) if len(ledger2_df) > 0 else 0:.2f}%",
-                ' ',
+                '',
             ]
         }
         summary_df = pd.DataFrame(summary_data)
@@ -507,7 +501,7 @@ def two_stage_reconciliation(bank_file, ledger1_file, ledger2_file, output_file)
         def prepare_columns(df):
             cols = [c for c in df.columns if c not in ['Status_1', 'Status_2', ' ', '  ', '   ', 'clean_date', 'internal_amount', 'match_date', 'match_amount', 'original_bank_index', 'original_ledger_index']]
             if 'Status_1' in df.columns and 'Status_2' in df.columns:
-                return cols + [' ', '  ', '   ', 'Status_1', '  ', 'Status_2', '   ']
+                return cols + [' ', 'Status_1', '  ', 'Status_2', '   ']
             elif 'Status_1' in df.columns:
                 return cols + [' ', '  ', '   ', 'Status_1']
             elif 'Status_2' in df.columns:
@@ -519,9 +513,8 @@ def two_stage_reconciliation(bank_file, ledger1_file, ledger2_file, output_file)
         bank_cols = prepare_columns(bank_df)
         bank_df[bank_cols].to_excel(writer, sheet_name='Bank Statement (All)', index=False)
         bank_df[bank_df['Status_1'] == 'Matched_Stage1'][bank_cols].to_excel(writer, sheet_name='Bank - Matched_Stage1', index=False)
-        bank_df[bank_df['Status_1'] == 'Unmatched_Stage1'][bank_cols].to_excel(writer, sheet_name='Bank - Unmatched_Stage1', index=False)
-        bank_df[bank_df['Status_2'] == 'Matched_2'][bank_cols].to_excel(writer, sheet_name='Bank - Matched_Stage2', index=False)
-        bank_df[bank_df['Status_2'] == 'Unmatched_2'][bank_cols].to_excel(writer, sheet_name='Bank - Unmatched_Stage2', index=False)
+        bank_df[bank_df['Status_2'] == 'Matched_2'][bank_cols].to_excel(writer, sheet_name='Bank - Matched_2', index=False)
+        bank_df[bank_df['Status_2'] == 'Unmatched_2'][bank_cols].to_excel(writer, sheet_name='Bank - Unmatched_2', index=False)
         
         # Ledger 1 sheets
         ledger1_cols = prepare_columns(ledger1_df)
@@ -532,15 +525,15 @@ def two_stage_reconciliation(bank_file, ledger1_file, ledger2_file, output_file)
         # Ledger 2 sheets
         ledger2_cols = prepare_columns(ledger2_df)
         ledger2_df[ledger2_cols].to_excel(writer, sheet_name='Ledger 2 (All)', index=False)
-        ledger2_df[ledger2_df['Status_2'] == 'Matched_2'][ledger2_cols].to_excel(writer, sheet_name='Ledger 2 - Matched_Stage2', index=False)
-        ledger2_df[ledger2_df['Status_2'] == 'Unmatched_2'][ledger2_cols].to_excel(writer, sheet_name='Ledger 2 - Unmatched_Stage2', index=False)
+        ledger2_df[ledger2_df['Status_2'] == 'Matched_2'][ledger2_cols].to_excel(writer, sheet_name='Ledger 2 - Matched_2', index=False)
+        ledger2_df[ledger2_df['Status_2'] == 'Unmatched_2'][ledger2_cols].to_excel(writer, sheet_name='Ledger 2 - Unmatched_2', index=False)
     
-    print("\nResults saved successfully!")
-    print("\nOutput file contains:")
+    print("\n✅ Results saved successfully!")
+    print("\n📋 Output file contains:")
     print("   1. Summary - Complete reconciliation overview")
-    print("   2-6. Bank Statement sheets (All, Matched_Stage1, Unmatched_Stage1, Matched_Stage2, Unmatched_Stage2)")
+    print("   2-5. Bank Statement sheets (All, Matched_Stage1, Matched_2, Unmatched_2)")
     print("   6-8. Ledger 1 sheets (All, Matched_Stage1, Unmatched_Stage1)")
-    print("   9-11. Ledger 2 sheets (All, Matched_Stage2, Unmatched_Stage2)")
+    print("   9-11. Ledger 2 sheets (All, Matched_2, Unmatched_2)")
     
     print("\n" + "="*70)
     print("TWO-STAGE RECONCILIATION COMPLETE!")
