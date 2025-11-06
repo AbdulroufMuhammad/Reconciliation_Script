@@ -345,14 +345,14 @@ def two_stage_reconciliation(bank_file, ledger1_file, ledger2_file, output_file)
         # Update Status_2 for bank records
         # For matched records in stage 1, Status_2 remains empty
         # For unmatched records from stage 1, set Status_2
-        bank_df.loc[bank_df['Status_1'] == 'Unmatched_Stage1', 'Status_2'] = 'Unmatched_2'
+        bank_df.loc[bank_df['Status_1'] == 'Unmatched_Stage1', 'Status_2'] = 'Unmatched_Stage2'
         if matched_bank_stage2_indices:
-            bank_df.loc[matched_bank_stage2_indices, 'Status_2'] = 'Matched_2'
+            bank_df.loc[matched_bank_stage2_indices, 'Status_2'] = 'Matched_Stage2'
         
         # Update Status_2 for ledger 2
-        ledger2_df['Status_2'] = 'Unmatched_2'
+        ledger2_df['Status_2'] = 'Unmatched_Stage2'
         if matched_ledger2:
-            ledger2_df.loc[matched_ledger2, 'Status_2'] = 'Matched_2'
+            ledger2_df.loc[matched_ledger2, 'Status_2'] = 'Matched_Stage2'
         
         # Stage 2 results
         matched_stage2_count = len(matched_bank_stage2_indices)
@@ -400,47 +400,51 @@ def two_stage_reconciliation(bank_file, ledger1_file, ledger2_file, output_file)
         
         summary_data = {
             'Metric': [
-                '═══════════════════════════════════════════════════',
+                ' ',
                 '                 BANK STATEMENT SUMMARY',
-                '═══════════════════════════════════════════════════',
+                ' ',
                 '',
                 'Total Bank Statement Records',
                 '',
-                '--- STAGE 1: Matching with Primary Ledger ---',
+                'STAGE 1: Matching with Primary Ledger',
                 'Matched with Ledger 1',
                 'Unmatched with Ledger 1',
+                ' ',
                 'Stage 1 Match Rate',
+                ' ',
                 '',
-                '--- STAGE 2: Matching Unmatched with Secondary Ledger ---',
+                'STAGE 2: Matching Unmatched with Secondary Ledger',
                 'Matched with Ledger 2',
                 'Still Unmatched after Stage 2',
-                'Stage 2 Match Rate (of unmatched)',
+                ' ',
+                'Stage 2 Match Rate',
+                ' ',
                 '',
-                '--- OVERALL BANK RECONCILIATION ---',
+                'OVERALL BANK RECONCILIATION',
                 'Total Matched (Stage 1 + Stage 2)',
                 'Total Unmatched',
                 'Overall Match Rate',
                 '',
                 '',
-                '════════════════════════════════',
+                ' ',
                 '            PRIMARY LEDGER (LEDGER 1) SUMMARY',
-                '════════════════════════════════',
+                ' ',
                 '',
                 'Total Ledger 1 Records',
                 '',
-                '--- STAGE 1: Matching with Bank Statement ---',
+                'STAGE 1: Matching with Bank Statement',
                 'Matched with Bank Statement',
                 'Unmatched with Bank Statement',
                 'Ledger 1 Match Rate',
                 '',
                 '',
-                '══════════════════════════════════',
+                ' ',
                 '          SECONDARY LEDGER (LEDGER 2) SUMMARY',
-                '══════════════════════════════════',
+                ' ',
                 '',
                 'Total Ledger 2 Records',
                 '',
-                '--- STAGE 2: Matching with Unmatched Bank Records ---',
+                'STAGE 2: Matching with Unmatched Bank Records',
                 'Matched with Bank Statement',
                 'Unmatched with Bank Statement',
                 'Ledger 2 Match Rate',
@@ -513,8 +517,8 @@ def two_stage_reconciliation(bank_file, ledger1_file, ledger2_file, output_file)
         bank_cols = prepare_columns(bank_df)
         bank_df[bank_cols].to_excel(writer, sheet_name='Bank Statement (All)', index=False)
         bank_df[bank_df['Status_1'] == 'Matched_Stage1'][bank_cols].to_excel(writer, sheet_name='Bank - Matched_Stage1', index=False)
-        bank_df[bank_df['Status_2'] == 'Matched_2'][bank_cols].to_excel(writer, sheet_name='Bank - Matched_2', index=False)
-        bank_df[bank_df['Status_2'] == 'Unmatched_2'][bank_cols].to_excel(writer, sheet_name='Bank - Unmatched_2', index=False)
+        bank_df[bank_df['Status_2'] == 'Matched_Stage2'][bank_cols].to_excel(writer, sheet_name='Bank - Matched_Stage2', index=False)
+        bank_df[bank_df['Status_2'] == 'Unmatched_Stage2'][bank_cols].to_excel(writer, sheet_name='Bank - Unmatched_Stage2', index=False)
         
         # Ledger 1 sheets
         ledger1_cols = prepare_columns(ledger1_df)
@@ -525,15 +529,15 @@ def two_stage_reconciliation(bank_file, ledger1_file, ledger2_file, output_file)
         # Ledger 2 sheets
         ledger2_cols = prepare_columns(ledger2_df)
         ledger2_df[ledger2_cols].to_excel(writer, sheet_name='Ledger 2 (All)', index=False)
-        ledger2_df[ledger2_df['Status_2'] == 'Matched_2'][ledger2_cols].to_excel(writer, sheet_name='Ledger 2 - Matched_2', index=False)
-        ledger2_df[ledger2_df['Status_2'] == 'Unmatched_2'][ledger2_cols].to_excel(writer, sheet_name='Ledger 2 - Unmatched_2', index=False)
+        ledger2_df[ledger2_df['Status_2'] == 'Matched_Stage2'][ledger2_cols].to_excel(writer, sheet_name='Ledger 2 - Matched_Stage2', index=False)
+        ledger2_df[ledger2_df['Status_2'] == 'Unmatched_Stage2'][ledger2_cols].to_excel(writer, sheet_name='Ledger 2 - Unmatched_Stage2', index=False)
     
     print("\n✅ Results saved successfully!")
     print("\n📋 Output file contains:")
     print("   1. Summary - Complete reconciliation overview")
-    print("   2-5. Bank Statement sheets (All, Matched_Stage1, Matched_2, Unmatched_2)")
+    print("   2-5. Bank Statement sheets (All, Matched_Stage1, Matched_Stage2, Unmatched_Stage2)")
     print("   6-8. Ledger 1 sheets (All, Matched_Stage1, Unmatched_Stage1)")
-    print("   9-11. Ledger 2 sheets (All, Matched_2, Unmatched_2)")
+    print("   9-11. Ledger 2 sheets (All, Matched_Stage2, Unmatched_Stage2)")
     
     print("\n" + "="*70)
     print("TWO-STAGE RECONCILIATION COMPLETE!")
