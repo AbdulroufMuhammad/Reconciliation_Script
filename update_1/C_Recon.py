@@ -3,9 +3,14 @@ import numpy as np
 from datetime import datetime
 import os
 from dotenv import load_dotenv
+from pathlib import Path
 
-# Load environment variables from .env file
-load_dotenv()
+# Explicitly load the .env file from the script directory first,
+# which will override any previously loaded environment variables
+script_dir = Path(__file__).parent
+env_path = script_dir / '.env'
+print(f"Explicitly loading .env file from: {env_path.absolute()}")
+load_dotenv(env_path, override=True)  # Use override=True to ensure values are loaded regardless of existing environment variables
 
 def find_value_date_and_amount_columns(df, file_type):
     """
@@ -311,7 +316,7 @@ def two_stage_reconciliation(bank_file, ledger1_file, ledger2_file, output_file)
     matched_stage1_count = len(matched_bank_stage1)
     unmatched_stage1_count = total_bank - matched_stage1_count
     
-    print(f"\n✅ Stage 1 Results:")
+    print(f"\n[SUCCESS] Stage 1 Results:")
     print(f"   Total Bank records: {total_bank}")
     print(f"   Matched with Ledger 1: {matched_stage1_count}")
     print(f"   Unmatched (going to Stage 2): {unmatched_stage1_count}")
@@ -328,7 +333,7 @@ def two_stage_reconciliation(bank_file, ledger1_file, ledger2_file, output_file)
     bank_df['Status_2'] = ''
     
     if len(bank_unmatched_stage1) == 0:
-        print("✅ All bank records matched in Stage 1. No Stage 2 needed.")
+        print("[SUCCESS] All bank records matched in Stage 1. No Stage 2 needed.")
         matched_stage2_count = 0
         unmatched_stage2_count = 0
         matched_ledger2 = []
@@ -358,7 +363,7 @@ def two_stage_reconciliation(bank_file, ledger1_file, ledger2_file, output_file)
         matched_stage2_count = len(matched_bank_stage2_indices)
         unmatched_stage2_count = unmatched_stage1_count - matched_stage2_count
         
-        print(f"\n✅ Stage 2 Results:")
+        print(f"\n[SUCCESS] Stage 2 Results:")
         print(f"   Unmatched from Stage 1: {unmatched_stage1_count}")
         print(f"   Matched with Ledger 2: {matched_stage2_count}")
         print(f"   Still Unmatched: {unmatched_stage2_count}")
@@ -369,23 +374,23 @@ def two_stage_reconciliation(bank_file, ledger1_file, ledger2_file, output_file)
     print("="*70)
     print(f"\nBANK STATEMENT:")
     print(f"   Total records: {total_bank}")
-    print(f"   ├─ Matched in Stage 1 (Ledger 1): {matched_stage1_count} ({matched_stage1_count/total_bank*100:.1f}%)")
-    print(f"   ├─ Matched in Stage 2 (Ledger 2): {matched_stage2_count} ({matched_stage2_count/total_bank*100:.1f}%)")
-    print(f"   └─ Still Unmatched: {unmatched_stage2_count} ({unmatched_stage2_count/total_bank*100:.1f}%)")
+    print(f"   + Matched in Stage 1 (Ledger 1): {matched_stage1_count} ({matched_stage1_count/total_bank*100:.1f}%)")
+    print(f"   + Matched in Stage 2 (Ledger 2): {matched_stage2_count} ({matched_stage2_count/total_bank*100:.1f}%)")
+    print(f"   - Still Unmatched: {unmatched_stage2_count} ({unmatched_stage2_count/total_bank*100:.1f}%)")
     print(f"\n   Overall Match Rate: {(matched_stage1_count + matched_stage2_count)/total_bank*100:.1f}%")
     
     print(f"\nLEDGER 1 (Primary):")
     print(f"   Total records: {len(ledger1_df)}")
-    print(f"   ├─ Matched with Bank: {len(matched_ledger1)}")
-    print(f"   └─ Unmatched: {len(ledger1_df) - len(matched_ledger1)}")
+    print(f"   + Matched with Bank: {len(matched_ledger1)}")
+    print(f"   - Unmatched: {len(ledger1_df) - len(matched_ledger1)}")
     
     print(f"\nLEDGER 2 (Secondary/General):")
     print(f"   Total records: {len(ledger2_df)}")
-    print(f"   ├─ Matched with Bank: {len(matched_ledger2)}")
-    print(f"   └─ Unmatched: {len(ledger2_df) - len(matched_ledger2)}")
+    print(f"   + Matched with Bank: {len(matched_ledger2)}")
+    print(f"   - Unmatched: {len(ledger2_df) - len(matched_ledger2)}")
     
     # ========== SAVE RESULTS ==========
-    print(f"\n💾 Saving results to: {output_file}")
+    print(f"\n[SAVING] Saving results to: {output_file}")
     
     # Add gap columns for visual separation with space names to appear blank
     for df in [bank_df, ledger1_df, ledger2_df]:
@@ -477,6 +482,8 @@ def two_stage_reconciliation(bank_file, ledger1_file, ledger2_file, output_file)
                 '',
                 '',
                 '',
+                '',
+                '',
                 len(ledger1_df),
                 '',
                 '',
@@ -496,20 +503,22 @@ def two_stage_reconciliation(bank_file, ledger1_file, ledger2_file, output_file)
                 ledger2_unmatched,
                 f"{(len(matched_ledger2)/len(ledger2_df)*100) if len(ledger2_df) > 0 else 0:.2f}%",
                 '',
+                '',
+                ''
             ]
         }
         summary_df = pd.DataFrame(summary_data)
         summary_df.to_excel(writer, sheet_name='Summary', index=False)
         
-        # Prepare columns for export (Status_1 and Status_2 at the end with Gap in between)
+        # Prepare columns for export (Status_1 and Status_2 at the end with 3-gap columns in between)
         def prepare_columns(df):
             cols = [c for c in df.columns if c not in ['Status_1', 'Status_2', ' ', '  ', '   ', 'clean_date', 'internal_amount', 'match_date', 'match_amount', 'original_bank_index', 'original_ledger_index']]
             if 'Status_1' in df.columns and 'Status_2' in df.columns:
-                return cols + [' ', 'Status_1', '  ', 'Status_2', '   ']
+                return cols + [' ', '  ', '   ', 'Status_1', ' ', '  ', '   ', 'Status_2', ' ', '  ', '   ']
             elif 'Status_1' in df.columns:
-                return cols + [' ', '  ', '   ', 'Status_1']
+                return cols + [' ', '  ', '   ', 'Status_1', ' ', '  ', '   ']
             elif 'Status_2' in df.columns:
-                return cols + [' ', '  ', '   ', 'Status_2']
+                return cols + [' ', '  ', '   ', 'Status_2', ' ', '  ', '   ']
             else:
                 return cols + [' ', '  ', '   ']
         
@@ -517,6 +526,7 @@ def two_stage_reconciliation(bank_file, ledger1_file, ledger2_file, output_file)
         bank_cols = prepare_columns(bank_df)
         bank_df[bank_cols].to_excel(writer, sheet_name='Bank Statement (All)', index=False)
         bank_df[bank_df['Status_1'] == 'Matched_Stage1'][bank_cols].to_excel(writer, sheet_name='Bank - Matched_Stage1', index=False)
+        bank_df[bank_df['Status_1'] == 'Unmatched_Stage1'][bank_cols].to_excel(writer, sheet_name='Bank - Unmatched_Stage1', index=False)
         bank_df[bank_df['Status_2'] == 'Matched_Stage2'][bank_cols].to_excel(writer, sheet_name='Bank - Matched_Stage2', index=False)
         bank_df[bank_df['Status_2'] == 'Unmatched_Stage2'][bank_cols].to_excel(writer, sheet_name='Bank - Unmatched_Stage2', index=False)
         
@@ -532,12 +542,12 @@ def two_stage_reconciliation(bank_file, ledger1_file, ledger2_file, output_file)
         ledger2_df[ledger2_df['Status_2'] == 'Matched_Stage2'][ledger2_cols].to_excel(writer, sheet_name='Ledger 2 - Matched_Stage2', index=False)
         ledger2_df[ledger2_df['Status_2'] == 'Unmatched_Stage2'][ledger2_cols].to_excel(writer, sheet_name='Ledger 2 - Unmatched_Stage2', index=False)
     
-    print("\n✅ Results saved successfully!")
-    print("\n📋 Output file contains:")
+    print("\n[SUCCESS] Results saved successfully!")
+    print("\n[INFO] Output file contains:")
     print("   1. Summary - Complete reconciliation overview")
-    print("   2-5. Bank Statement sheets (All, Matched_Stage1, Matched_Stage2, Unmatched_Stage2)")
-    print("   6-8. Ledger 1 sheets (All, Matched_Stage1, Unmatched_Stage1)")
-    print("   9-11. Ledger 2 sheets (All, Matched_Stage2, Unmatched_Stage2)")
+    print("   2-6. Bank Statement sheets (All, Matched_Stage1, Unmatched_Stage1, Matched_Stage2, Unmatched_Stage2)")
+    print("   7-9. Ledger 1 sheets (All, Matched_Stage1, Unmatched_Stage1)")
+    print("   10-12. Ledger 2 sheets (All, Matched_Stage2, Unmatched_Stage2)")
     
     print("\n" + "="*70)
     print("TWO-STAGE RECONCILIATION COMPLETE!")
@@ -553,6 +563,12 @@ def main():
     LEDGER1_FILE = os.getenv('LEDGER_FILE_PATH', 'sample_ledger.xlsx')
     LEDGER2_FILE = os.getenv('LEDGER2_FILE_PATH', 'sample_general_ledger.xlsx')
     OUTPUT_FILE = os.getenv('OUTPUT_FILE_PATH', 'Two_Stage_Reconciliation_Results.xlsx')
+    
+    # Debug print to confirm the loaded values
+    print(f"DEBUG: Loaded BANK_FILE = {BANK_FILE}")
+    print(f"DEBUG: Loaded LEDGER1_FILE = {LEDGER1_FILE}")
+    print(f"DEBUG: Loaded LEDGER2_FILE = {LEDGER2_FILE}")
+    print(f"DEBUG: Loaded OUTPUT_FILE = {OUTPUT_FILE}")
     
     # Run the two-stage reconciliation
     two_stage_reconciliation(BANK_FILE, LEDGER1_FILE, LEDGER2_FILE, OUTPUT_FILE)
