@@ -131,49 +131,82 @@ def find_actual_data_rows(df, file_type):
                 date_col = col
                 break
         
-        # Find amount columns
-        amount_cols = []
-        for col in df_data.columns:
-            if file_type == "bank" and ('credit' in str(col).lower() or 'debit' in str(col).lower()):
-                amount_cols.append(col)
-            elif file_type == "ledger" and 'debit' in str(col).lower():
-                amount_cols.append(col)
+        # Disable date validation as per user's request
+        valid_date_mask = pd.Series([True] * len(df_data), index=df_data.index)
+        print(f"DEBUG: After (disabled) date validation, valid dates: {valid_date_mask.sum()}")
+            
+        valid_amount_mask = pd.Series([False] * len(df_data), index=df_data.index)
         
-        # Apply date and amount validation
-        if date_col:
-            date_series = pd.to_datetime(df_data[date_col].astype(str), errors='coerce')
-            valid_date_mask = date_series.notna()
+        if file_type == "bank":
+            # For bank statements, check BOTH Credit AND Debit columns
+            # A row is valid if it has a value in EITHER column
+            credit_col = None
+            debit_col = None
             
-            valid_amount_mask = pd.Series([True] * len(df_data), index=df_data.index)
+            for col in df_data.columns:
+                col_lower = str(col).lower()
+                if 'credit' in col_lower and credit_col is None:
+                    credit_col = col
+                if 'debit' in col_lower and debit_col is None:
+                    debit_col = col
             
-            if file_type == "bank":
-                credit_col = None
-                for col in df_data.columns:
-                    if 'credit' in str(col).lower():
-                        credit_col = col
-                        break
-                if credit_col:
-                    credit_series = pd.to_numeric(df_data[credit_col].astype(str).str.replace(',', '').str.replace(' ', ''), errors='coerce')
-                    original_credit_values = df_data[credit_col].astype(str).str.strip()
-                    non_empty_and_non_zero_credit = (credit_series.notna()) & (original_credit_values != '') & (original_credit_values != 'nan') & (original_credit_values != 'NaN')
-                    valid_amount_mask = non_empty_and_non_zero_credit
-                else:
-                    valid_amount_mask = pd.Series([False] * len(df_data), index=df_data.index)
-            else:  # file_type == "ledger"
-                valid_amount_mask = pd.Series([False] * len(df_data), index=df_data.index)
-                for amount_col in amount_cols:
-                    amount_series = pd.to_numeric(df_data[amount_col].astype(str).str.replace(',', '').str.replace(' ', ''), errors='coerce')
-                    original_values = df_data[amount_col].astype(str).str.strip()
-                    non_empty_and_non_zero = (amount_series.notna()) & (original_values != '') & (original_values != 'nan') & (original_values != 'NaN')
-                    valid_amount_mask = valid_amount_mask | non_empty_and_non_zero
-        else:
-            valid_date_mask = pd.Series([True] * len(df_data), index=df_data.index)
-            valid_amount_mask = pd.Series([False] * len(df_data), index=df_data.index)
+            # Check Credit column
+            if credit_col:
+                credit_series = pd.to_numeric(
+                    df_data[credit_col].astype(str).str.replace(',', '').str.replace(' ', ''), 
+                    errors='coerce'
+                )
+                original_credit_values = df_data[credit_col].astype(str).str.strip()
+                has_credit = (credit_series.notna()) & (credit_series != 0) & \
+                            (original_credit_values != '') & \
+                            (original_credit_values != 'nan') & \
+                            (original_credit_values != 'NaN')
+                valid_amount_mask = valid_amount_mask | has_credit
+            
+            # Check Debit column
+            if debit_col:
+                debit_series = pd.to_numeric(
+                    df_data[debit_col].astype(str).str.replace(',', '').str.replace(' ', ''), 
+                    errors='coerce'
+                )
+                original_debit_values = df_data[debit_col].astype(str).str.strip()
+                has_debit = (debit_series.notna()) & (debit_series != 0) & \
+                           (original_debit_values != '') & \
+                           (original_debit_values != 'nan') & \
+                           (original_debit_values != 'NaN')
+                valid_amount_mask = valid_amount_mask | has_debit
+            
+        else:  # file_type == "ledger"
+            # For ledgers, check all amount columns (usually just Debit for matching)
+            amount_cols = []
+            for col in df_data.columns:
+                if 'debit' in str(col).lower():
+                    amount_cols.append(col)
+            
+            for amount_col in amount_cols:
+                amount_series = pd.to_numeric(
+                    df_data[amount_col].astype(str).str.replace(',', '').str.replace(' ', ''), 
+                    errors='coerce'
+                )
+                original_values = df_data[amount_col].astype(str).str.strip()
+                has_amount = (amount_series.notna()) & (amount_series != 0) & \
+                            (original_values != '') & \
+                            (original_values != 'nan') & \
+                            (original_values != 'NaN')
+                valid_amount_mask = valid_amount_mask | has_amount
         
         final_mask = non_summary_mask & valid_date_mask & valid_amount_mask
         
+        print(f"\nDEBUG - Filtering Results:")
+        print(f"   Rows after header extraction: {len(df_data)}")
+        print(f"   Rows after summary filter: {non_summary_mask.sum()}")
+        print(f"   Rows with valid dates: {valid_date_mask.sum()}")
+        print(f"   Rows with valid amounts: {valid_amount_mask.sum()}")
+        print(f"   Final valid rows: {final_mask.sum()}")
+        
         return df_data[final_mask], header_row
     else:
+        print("WARNING: Could not find header row in data")
         return df, 0
 
 
