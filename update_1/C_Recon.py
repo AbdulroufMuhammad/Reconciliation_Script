@@ -65,7 +65,7 @@ def find_actual_data_rows(df, file_type):
     """
     # Find header rows by looking for "Value Date", "Credit", "Debit" keywords
     header_row = None
-    for i in range(min(20, len(df))):  # Check first 20 rows for headers
+    for i in range(min(50, len(df))):  # Check first 50 rows for headers
         row_values = df.iloc[i].astype(str)
         if file_type == "bank":
             if any('value date' in val.lower() or 'trans date' in val.lower() for val in row_values) and \
@@ -80,7 +80,7 @@ def find_actual_data_rows(df, file_type):
 
     # If exact headers not found, try to find any date/credit or date/debit combination
     if header_row is None:
-        for i in range(min(20, len(df))):
+        for i in range(min(50, len(df))):
             row_values = df.iloc[i].astype(str)
             has_date = any('date' in val.lower() and 'value' in val.lower() for val in row_values)
             if file_type == "bank":
@@ -155,7 +155,7 @@ def find_actual_data_rows(df, file_type):
                 if credit_col:
                     credit_series = pd.to_numeric(df_data[credit_col].astype(str).str.replace(',', '').str.replace(' ', ''), errors='coerce')
                     original_credit_values = df_data[credit_col].astype(str).str.strip()
-                    non_empty_and_non_zero_credit = (credit_series.notna()) & (credit_series != 0) & (original_credit_values != '') & (original_credit_values != 'nan') & (original_credit_values != 'NaN')
+                    non_empty_and_non_zero_credit = (credit_series.notna()) & (original_credit_values != '') & (original_credit_values != 'nan') & (original_credit_values != 'NaN')
                     valid_amount_mask = non_empty_and_non_zero_credit
                 else:
                     valid_amount_mask = pd.Series([False] * len(df_data), index=df_data.index)
@@ -164,7 +164,7 @@ def find_actual_data_rows(df, file_type):
                 for amount_col in amount_cols:
                     amount_series = pd.to_numeric(df_data[amount_col].astype(str).str.replace(',', '').str.replace(' ', ''), errors='coerce')
                     original_values = df_data[amount_col].astype(str).str.strip()
-                    non_empty_and_non_zero = (amount_series.notna()) & (amount_series != 0) & (original_values != '') & (original_values != 'nan') & (original_values != 'NaN')
+                    non_empty_and_non_zero = (amount_series.notna()) & (original_values != '') & (original_values != 'nan') & (original_values != 'NaN')
                     valid_amount_mask = valid_amount_mask | non_empty_and_non_zero
         else:
             valid_date_mask = pd.Series([True] * len(df_data), index=df_data.index)
@@ -403,111 +403,38 @@ def two_stage_reconciliation(bank_file, ledger1_file, ledger2_file, output_file)
         ledger1_unmatched = len(ledger1_df) - len(matched_ledger1)
         ledger2_unmatched = len(ledger2_df) - len(matched_ledger2)
         
-        summary_data = {
-            'Metric': [
-                ' ',
-                '                 BANK STATEMENT SUMMARY',
-                ' ',
-                '',
-                'Total Bank Statement Records',
-                '',
-                'STAGE 1: Matching with Primary Ledger',
-                'Matched with Ledger 1',
-                'Unmatched with Ledger 1',
-                ' ',
-                'Stage 1 Match Rate',
-                ' ',
-                '',
-                'STAGE 2: Matching Unmatched with Secondary Ledger',
-                'Matched with Ledger 2',
-                'Still Unmatched after Stage 2',
-                ' ',
-                'Stage 2 Match Rate',
-                ' ',
-                '',
-                'OVERALL BANK RECONCILIATION',
-                'Total Matched (Stage 1 + Stage 2)',
-                'Total Unmatched',
-                'Overall Match Rate',
-                '',
-                '',
-                ' ',
-                '            PRIMARY LEDGER (LEDGER 1) SUMMARY',
-                ' ',
-                '',
-                'Total Ledger 1 Records',
-                '',
-                'STAGE 1: Matching with Bank Statement',
-                'Matched with Bank Statement',
-                'Unmatched with Bank Statement',
-                'Ledger 1 Match Rate',
-                '',
-                '',
-                ' ',
-                '          SECONDARY LEDGER (LEDGER 2) SUMMARY',
-                ' ',
-                '',
-                'Total Ledger 2 Records',
-                '',
-                'STAGE 2: Matching with Unmatched Bank Records',
-                'Matched with Bank Statement',
-                'Unmatched with Bank Statement',
-                'Ledger 2 Match Rate',
-                '',
-            ],
-            'Value': [
-                '',
-                '',
-                '',
-                '',
-                total_bank,
-                '',
-                '',
-                matched_stage1_count,
-                unmatched_stage1_count,
-                f"{(matched_stage1_count/total_bank*100) if total_bank > 0 else 0:.2f}%",
-                '',
-                '',
-                matched_stage2_count,
-                unmatched_stage2_count,
-                f"{(matched_stage2_count/unmatched_stage1_count*100) if unmatched_stage1_count > 0 else 0:.2f}%",
-                '',
-                '',
-                matched_stage1_count + matched_stage2_count,
-                unmatched_stage2_count,
-                f"{((matched_stage1_count + matched_stage2_count)/total_bank*100) if total_bank > 0 else 0:.2f}%",
-                '',
-                '',
-                '',
-                '',
-                '',
-                '',
-                '',
-                '',
-                len(ledger1_df),
-                '',
-                '',
-                len(matched_ledger1),
-                ledger1_unmatched,
-                f"{(len(matched_ledger1)/len(ledger1_df)*100) if len(ledger1_df) > 0 else 0:.2f}%",
-                '',
-                '',
-                '',
-                '',
-                '',
-                '',
-                len(ledger2_df),
-                '',
-                '',
-                len(matched_ledger2),
-                ledger2_unmatched,
-                f"{(len(matched_ledger2)/len(ledger2_df)*100) if len(ledger2_df) > 0 else 0:.2f}%",
-                '',
-                '',
-                ''
-            ]
-        }
-        summary_df = pd.DataFrame(summary_data)
+        summary_data = [
+            {'Metric': 'BANK STATEMENT SUMMARY', 'Value': ''},
+            {'Metric': 'Total Bank Statement Records', 'Value': total_bank},
+            {'Metric': '', 'Value': ''},
+            {'Metric': 'STAGE 1: Matching with Primary Ledger', 'Value': ''},
+            {'Metric': 'Matched with Ledger 1', 'Value': matched_stage1_count},
+            {'Metric': 'Unmatched with Ledger 1', 'Value': unmatched_stage1_count},
+            {'Metric': 'Stage 1 Match Rate', 'Value': f"{(matched_stage1_count/total_bank*100) if total_bank > 0 else 0:.2f}%"},
+            {'Metric': '', 'Value': ''},
+            {'Metric': 'STAGE 2: Matching Unmatched with Secondary Ledger', 'Value': ''},
+            {'Metric': 'Matched with Ledger 2', 'Value': matched_stage2_count},
+            {'Metric': 'Still Unmatched after Stage 2', 'Value': unmatched_stage2_count},
+            {'Metric': 'Stage 2 Match Rate', 'Value': f"{(matched_stage2_count/unmatched_stage1_count*100) if unmatched_stage1_count > 0 else 0:.2f}%"},
+            {'Metric': '', 'Value': ''},
+            {'Metric': 'OVERALL BANK RECONCILIATION', 'Value': ''},
+            {'Metric': 'Total Matched (Stage 1 + Stage 2)', 'Value': matched_stage1_count + matched_stage2_count},
+            {'Metric': 'Total Unmatched', 'Value': unmatched_stage2_count},
+            {'Metric': 'Overall Match Rate', 'Value': f"{((matched_stage1_count + matched_stage2_count)/total_bank*100) if total_bank > 0 else 0:.2f}%"},
+            {'Metric': '', 'Value': ''},
+            {'Metric': 'PRIMARY LEDGER (LEDGER 1) SUMMARY', 'Value': ''},
+            {'Metric': 'Total Ledger 1 Records', 'Value': len(ledger1_df)},
+            {'Metric': 'Matched with Bank Statement', 'Value': len(matched_ledger1)},
+            {'Metric': 'Unmatched with Bank Statement', 'Value': ledger1_unmatched},
+            {'Metric': 'Ledger 1 Match Rate', 'Value': f"{(len(matched_ledger1)/len(ledger1_df)*100) if len(ledger1_df) > 0 else 0:.2f}%"},
+            {'Metric': '', 'Value': ''},
+            {'Metric': 'SECONDARY LEDGER (LEDGER 2) SUMMARY', 'Value': ''},
+            {'Metric': 'Total Ledger 2 Records', 'Value': len(ledger2_df)},
+            {'Metric': 'Matched with Bank Statement', 'Value': len(matched_ledger2)},
+            {'Metric': 'Unmatched with Bank Statement', 'Value': ledger2_unmatched},
+            {'Metric': 'Ledger 2 Match Rate', 'Value': f"{(len(matched_ledger2)/len(ledger2_df)*100) if len(ledger2_df) > 0 else 0:.2f}%"},
+        ]
+        summary_df = pd.DataFrame.from_records(summary_data)
         summary_df.to_excel(writer, sheet_name='Summary', index=False)
         
         # Prepare columns for export (Status_1 and Status_2 at the end with 3-gap columns in between)
