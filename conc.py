@@ -3,9 +3,13 @@ import numpy as np
 from datetime import datetime
 import os
 from dotenv import load_dotenv
+from pathlib import Path
 
-# Load environment variables from .env file
-load_dotenv()
+# Explicitly load the .env file from the script directory first
+script_dir = Path(__file__).parent
+env_path = script_dir / '.env'
+print(f"Explicitly loading .env file from: {env_path.absolute()}")
+load_dotenv(env_path, override=True)
 
 def find_value_date_and_amount_columns(df, file_type):
     """
@@ -23,7 +27,8 @@ def find_value_date_and_amount_columns(df, file_type):
     # If not found, check for common variations
     if date_col is None:
         for col in df.columns:
-            if str(col).strip().lower().replace(' ', '').replace('_', '') in ['valuedate', 'value_date', 'valuedate']:
+            col_clean = str(col).strip().lower().replace(' ', '').replace('_', '')
+            if col_clean in ['valuedate', 'value_date', 'date', 'transdate', 'transactiondate']:
                 date_col = col
                 break
     
@@ -33,10 +38,10 @@ def find_value_date_and_amount_columns(df, file_type):
             if str(col).strip().lower() == 'credit':
                 amount_col = col
                 break
-        # If not found, check for variations
         if amount_col is None:
             for col in df.columns:
-                if str(col).strip().lower().replace(' ', '').replace('_', '') in ['credit', 'cr', 'credits']:
+                col_clean = str(col).strip().lower().replace(' ', '').replace('_', '')
+                if col_clean in ['credit', 'cr', 'credits', 'amount']:
                     amount_col = col
                     break
     elif file_type == "ledger":
@@ -44,155 +49,343 @@ def find_value_date_and_amount_columns(df, file_type):
             if str(col).strip().lower() == 'debit':
                 amount_col = col
                 break
-        # If not found, check for variations
         if amount_col is None:
             for col in df.columns:
-                if str(col).strip().lower().replace(' ', '').replace('_', '') in ['debit', 'dr', 'debits', 'withdrawal']:
+                col_clean = str(col).strip().lower().replace(' ', '').replace('_', '')
+                if col_clean in ['debit', 'dr', 'debits', 'withdrawal', 'amount']:
                     amount_col = col
                     break
     
     return date_col, amount_col
 
-def reconcile_bank_to_ledger(bank_file, ledger_file, output_file):
+def is_numeric_value(val):
+    """Helper function to check if a value is a valid non-zero number"""
+    if pd.isna(val):
+        return False
+    
+    val_str = str(val).strip().replace(',', '').replace(' ', '')
+    
+    # Check for empty or null strings
+    if not val_str or val_str.lower() in ['', 'nan', 'none', 'null', '#n/a']:
+        return False
+    
+    # Try to convert to float
+    try:
+        num_val = float(val_str)
+        return not pd.isna(num_val) and num_val != 0
+    except (ValueError, TypeError):
+        return False
+
+def diagnose_missing_rows(df_data, amount_col, file_type):
     """
-    Reconcile bank statement against ledger based on Value Date and Amounts.
+    Diagnose which rows are being excluded and why
     """
-    print("="*60)
-    print("BANK RECONCILIATION SCRIPT")
-    print("="*60)
-    print("BASE RECORD: Bank Statement")
-    print("MATCHING: Bank [Value Date + Amount(Credit)] with Ledger [Value Date + Amount(Debit)]")
-    print("="*60)
+    print(f"\n{'='*70}")
+    print(f"DIAGNOSTIC: Analyzing {file_type.upper()} rows with missing/invalid amounts")
+    print(f"{'='*70}")
     
-    # Load the files
-    print(f"Loading Bank Statement: {bank_file}")
-    if bank_file.lower().endswith('.xlsx') or bank_file.lower().endswith('.xls'):
-        bank_df = pd.read_excel(bank_file, header=None)
+    total_rows = len(df_data)
+    valid_count = 0
+    invalid_count = 0
+    invalid_samples = []
+    
+    # NEW: Track rows with actual visible data in the amount column
+    rows_with_visible_data = 0
+    
+    for idx in df_data.index:
+        val = df_data.loc[idx, amount_col]
+        is_valid = is_numeric_value(val)
+        
+        if is_valid:
+            valid_count += 1
+        else:
+            invalid_count += 1
+            
+            # Check if this looks like it has data (not truly empty)
+            has_visible_data = False
+            if pd.notna(val):
+                val_str = str(val).strip()
+                if val_str and val_str.lower() not in ['', 'nan', 'none', 'null']:
+                    has_visible_data = True
+                    rows_with_visible_data += 1
+            
+            # Store first 20 invalid samples for inspection (increased from 10)
+            if len(invalid_samples) < 20:
+                # Also grab a few other columns for context
+                row_context = {}
+                for col in df_data.columns[:5]:  # First 5 columns
+                    if col != amount_col:
+                        row_context[str(col)[:20]] = str(df_data.loc[idx, col])[:30]
+                
+                invalid_samples.append({
+                    'row_index': idx,
+                    'raw_value': repr(val),
+                    'value_type': type(val).__name__,
+                    'is_na': pd.isna(val),
+                    'str_value': str(val).strip() if pd.notna(val) else 'NaN',
+                    'has_visible_data': has_visible_data,
+                    'context': row_context
+                })
+    
+    print(f"\nTotal rows checked: {total_rows}")
+    print(f"Valid numeric values: {valid_count}")
+    print(f"Invalid/missing values: {invalid_count}")
+    if file_type == "bank":
+        print(f"Expected valid rows: 3778 (YOUR TARGET FOR CREDIT)")
     else:
-        bank_df = pd.read_csv(bank_file, header=None)
+        print(f"Expected valid rows: 3778 (YOUR TARGET)")
+    print(f"Difference: {3778 - valid_count} rows missing")
+    print(f"Rows with visible data in {amount_col} but marked invalid: {rows_with_visible_data}")
     
-    print(f"Loading Ledger: {ledger_file}")
-    if ledger_file.lower().endswith('.xlsx') or ledger_file.lower().endswith('.xls'):
-        ledger_df = pd.read_excel(ledger_file, header=None)
-    else:
-        ledger_df = pd.read_csv(ledger_file, header=None)
+    if invalid_samples:
+        print(f"\n{'='*70}")
+        print(f"Sample of INVALID values (first {len(invalid_samples)}):")
+        print(f"{'='*70}")
+        for i, sample in enumerate(invalid_samples, 1):
+            print(f"\n{i}. Row Index: {sample['row_index']}")
+            print(f"   Raw Value: {sample['raw_value']}")
+            print(f"   Type: {sample['value_type']}")
+            print(f"   Is NA/NaN: {sample['is_na']}")
+            print(f"   String Value: '{sample['str_value']}'")
+            print(f"   Has Visible Data: {sample['has_visible_data']}")
+            if sample['context']:
+                print(f"   Row Context (first few cols): {sample['context']}")
     
-    print(f"Bank Statement shape: {bank_df.shape}")
-    print(f"Ledger shape: {ledger_df.shape}")
+    # Check if there are rows with data in OTHER columns
+    print(f"\n{'='*70}")
+    print("Checking if invalid rows have data in other columns...")
+    print(f"{'='*70}")
     
+    rows_with_other_data = 0
+    sample_rows_with_data = []
+    
+    for idx in df_data.index:
+        val = df_data.loc[idx, amount_col]
+        if not is_numeric_value(val):
+            # Check if this row has ANY non-empty values in other columns
+            row_data = df_data.loc[idx]
+            has_other_data = False
+            other_data_sample = {}
+            
+            for col in df_data.columns:
+                if col != amount_col:
+                    cell_val = row_data[col]
+                    if pd.notna(cell_val) and str(cell_val).strip() not in ['', 'nan', 'NaN', 'None']:
+                        has_other_data = True
+                        other_data_sample[col] = str(cell_val)[:50]  # First 50 chars
+            
+            if has_other_data:
+                rows_with_other_data += 1
+                if len(sample_rows_with_data) < 5:
+                    sample_rows_with_data.append({
+                        'index': idx,
+                        'amount_value': repr(val),
+                        'other_data': other_data_sample
+                    })
+    
+    print(f"Rows with invalid {amount_col} but OTHER data: {rows_with_other_data}")
+    
+    if rows_with_other_data > 0:
+        print("\n⚠️  WARNING: These rows might be legitimate transactions!")
+        print("   They may have:")
+        print("   - Values in a different amount column (Credit vs Debit)")
+        print("   - Different number formats")
+        print("   - Formulas or special characters")
+        print("   - Zero or blank amounts")
+        
+        if sample_rows_with_data:
+            print(f"\n   Sample rows with data (first 5):")
+            for i, row in enumerate(sample_rows_with_data, 1):
+                print(f"\n   {i}. Row {row['index']} - {amount_col}: {row['amount_value']}")
+                print(f"      Other columns with data: {list(row['other_data'].keys())[:5]}")
+                # Show if Debit column has data
+                if 'Debit' in row['other_data']:
+                    print(f"      ⚠️ Debit column value: {row['other_data']['Debit']}")
+    
+    return valid_count, invalid_count, rows_with_other_data
+
+def find_actual_data_rows(df, file_type):
+    """
+    Find the actual transaction data rows by identifying the header row and filtering out 
+    non-transaction rows like summaries, totals, etc.
+    """
     # Find header rows by looking for "Value Date", "Credit", "Debit" keywords
-    bank_header_row = None
-    for i in range(min(20, len(bank_df))):  # Check first 20 rows for headers
-        row_values = bank_df.iloc[i].astype(str)
-        if any('value date' in val.lower() for val in row_values) and \
-           any('credit' in val.lower() for val in row_values):
-            bank_header_row = i
-            break
+    header_row = None
     
-    ledger_header_row = None
-    for i in range(min(20, len(ledger_df))):  # Check first 20 rows for headers
-        row_values = ledger_df.iloc[i].astype(str)
-        if any('value date' in val.lower() for val in row_values) and \
-           any('debit' in val.lower() for val in row_values):
-            ledger_header_row = i
+    for i in range(min(50, len(df))):
+        row_values = df.iloc[i].astype(str).str.lower()
+        
+        has_date = any('date' in val for val in row_values)
+        
+        if file_type == "bank":
+            has_amount = any('credit' in val or 'debit' in val for val in row_values)
+        else:  # ledger
+            has_amount = any('debit' in val for val in row_values)
+        
+        if has_date and has_amount:
+            header_row = i
             break
 
-    # If exact headers not found, try to find any date/credit or date/debit combination
-    if bank_header_row is None:
-        for i in range(min(20, len(bank_df))):
-            row_values = bank_df.iloc[i].astype(str)
-            has_date = any('date' in val.lower() and 'value' in val.lower() for val in row_values)
-            has_credit = any('credit' in val.lower() for val in row_values)
-            if has_date and has_credit:
-                bank_header_row = i
-                break
-    
-    if ledger_header_row is None:
-        for i in range(min(20, len(ledger_df))):
-            row_values = ledger_df.iloc[i].astype(str)
-            has_date = any('date' in val.lower() and 'value' in val.lower() for val in row_values)
-            has_debit = any('debit' in val.lower() for val in row_values)
-            if has_date and has_debit:
-                ledger_header_row = i
-                break
+    if header_row is None:
+        print("WARNING: Could not find header row in data")
+        return df, 0
 
-    # Set headers if found
-    if bank_header_row is not None:
-        print(f"Found bank header at row {bank_header_row}")
-        bank_df.columns = bank_df.iloc[bank_header_row]
-        bank_df = bank_df.iloc[bank_header_row+1:]
-    else:
-        print("No header row found for bank file, using default column names")
-        # If no header found, just use default names
-        bank_df.columns = [str(col) for col in bank_df.columns]
+    # Set headers and get data after header row
+    df_with_headers = df.iloc[header_row:].copy()
+    df_with_headers.columns = df_with_headers.iloc[0]
+    df_data = df_with_headers.iloc[1:].reset_index(drop=True)
     
-    if ledger_header_row is not None:
-        print(f"Found ledger header at row {ledger_header_row}")
-        ledger_df.columns = ledger_df.iloc[ledger_header_row]
-        ledger_df = ledger_df.iloc[ledger_header_row+1:]
-    else:
-        print("No header row found for ledger file, using default column names")
-        # If no header found, just use default names
-        ledger_df.columns = [str(col) for col in ledger_df.columns]
+    # STRICT EMPTY ROW FILTERING
+    # Filter out completely empty rows (all NaN or all whitespace)
+    def is_row_empty(row):
+        """Check if a row is completely empty (all NaN or whitespace)"""
+        for val in row.values:
+            if pd.notna(val):
+                val_str = str(val).strip()
+                # Check if it's not just whitespace or common empty representations
+                if val_str and val_str not in ['', 'nan', 'NaN', 'None', 'null', '#N/A', 'N/A']:
+                    return False
+        return True
     
-    # Find the specific Value Date and Credit/Debit columns
-    bank_date_col, bank_credit_col = find_value_date_and_amount_columns(bank_df, "bank")
-    ledger_date_col, ledger_debit_col = find_value_date_and_amount_columns(ledger_df, "ledger")
+    # Apply empty row filter
+    empty_mask = df_data.apply(is_row_empty, axis=1)
+    rows_before = len(df_data)
+    df_data = df_data[~empty_mask].reset_index(drop=True)
+    rows_removed = rows_before - len(df_data)
     
-    print(f"Bank Date Column: {bank_date_col}")
-    print(f"Bank Credit Column: {bank_credit_col}")
-    print(f"Ledger Date Column: {ledger_date_col}")
-    print(f"Ledger Debit Column: {ledger_debit_col}")
+    if rows_removed > 0:
+        print(f"   Removed {rows_removed} completely empty rows")
     
-    # Check if required columns were found
-    if bank_date_col is None or bank_credit_col is None:
-        print("ERROR: Could not find 'Value Date' and 'Credit' columns in bank file")
-        return
-    if ledger_date_col is None or ledger_debit_col is None:
-        print("ERROR: Could not find 'Value Date' and 'Debit' columns in ledger file")
-        return
+    # Filter out rows that are likely summaries or totals
+    summary_keywords = [
+        'total', 'grand total', 'sub total', 'subtotal', 'summary', 
+        'closing balance', 'opening balance', 'balance c/f', 'balance b/f', 
+        'overall total', 'balance forward', 'balance carried forward'
+    ]
+    
+    non_summary_mask = pd.Series([True] * len(df_data), index=df_data.index)
+    
+    for idx, row in df_data.iterrows():
+        row_str = ' '.join(str(val) for val in row.values if pd.notna(val))
+        row_str_lower = row_str.lower()
+        
+        is_summary = False
+        for keyword in summary_keywords:
+            if keyword in row_str_lower:
+                # For short rows or rows where keyword appears as a standalone word
+                clean_row_str = ' '.join(row_str_lower.split())
+                if len(clean_row_str) < 50 or f' {keyword} ' in f' {clean_row_str} ':
+                    is_summary = True
+                    break
+        
+        if is_summary:
+            non_summary_mask[idx] = False
+    
+    # ENHANCED AMOUNT VALIDATION WITH DIAGNOSTICS
+    valid_amount_mask = pd.Series([False] * len(df_data), index=df_data.index)
+    
+    if file_type == "bank":
+        # For bank statements, check ONLY Credit column
+        credit_col = None
+        debit_col = None
+        
+        for col in df_data.columns:
+            col_lower = str(col).lower()
+            if 'credit' in col_lower and credit_col is None:
+                credit_col = col
+            if 'debit' in col_lower and debit_col is None:
+                debit_col = col
+        
+        print(f"   Bank Credit Column: {credit_col}")
+        print(f"   Bank Debit Column: {debit_col} (separate, not used for matching)")
+        
+        # Run diagnostics for bank Credit column
+        if credit_col and credit_col in df_data.columns:
+            valid_count, invalid_count, rows_with_data = diagnose_missing_rows(df_data, credit_col, "bank")
+            
+            # Apply validation
+            for idx in df_data.index:
+                if is_numeric_value(df_data.loc[idx, credit_col]):
+                    valid_amount_mask[idx] = True
+        
+        print(f"\n   ✓ Total rows with valid Credit amounts: {valid_amount_mask.sum()}")
+        print(f"   ✓ Target: 3778 rows with Credit")
+        print(f"   ✓ Missing: {3778 - valid_amount_mask.sum()} rows")
+        
+    else:  # file_type == "ledger"
+        # For ledgers, check Debit column
+        debit_col = None
+        for col in df_data.columns:
+            if 'debit' in str(col).lower():
+                debit_col = col
+                break
+        
+        print(f"   Ledger Debit Column: {debit_col}")
+        
+        # ⭐ RUN DIAGNOSTICS FOR LEDGER ⭐
+        if debit_col and debit_col in df_data.columns:
+            valid_count, invalid_count, rows_with_data = diagnose_missing_rows(df_data, debit_col, "ledger")
+            
+            # Apply validation
+            for idx in df_data.index:
+                if is_numeric_value(df_data.loc[idx, debit_col]):
+                    valid_amount_mask[idx] = True
+    
+    # Final mask: non-summary rows with valid amounts
+    final_mask = non_summary_mask & valid_amount_mask
+    
+    print(f"\nDEBUG - Filtering Results:")
+    print(f"   Rows after header extraction: {len(df_data)}")
+    print(f"   Rows after summary filter: {non_summary_mask.sum()}")
+    print(f"   Rows with valid amounts: {valid_amount_mask.sum()}")
+    print(f"   Final valid rows: {final_mask.sum()}")
+    
+    return df_data[final_mask], header_row
+
+
+def perform_matching(bank_df, ledger_df, bank_date_col, bank_credit_col, ledger_date_col, ledger_debit_col, stage_number):
+    """
+    Perform matching between bank and ledger for a specific stage.
+    Returns matched indices for both bank and ledger.
+    """
+    # Create copies to avoid modifying originals
+    bank_work = bank_df.copy()
+    ledger_work = ledger_df.copy()
     
     # Convert date columns to datetime
-    bank_df['clean_date'] = pd.to_datetime(bank_df[bank_date_col], errors='coerce')
-    ledger_df['clean_date'] = pd.to_datetime(ledger_df[ledger_date_col], errors='coerce')
+    bank_work['clean_date'] = pd.to_datetime(bank_work[bank_date_col], errors='coerce')
+    ledger_work['clean_date'] = pd.to_datetime(ledger_work[ledger_date_col], errors='coerce')
     
-    # Convert amount columns to numeric (these will be used internally for matching)
-    # Both Credit and Debit are converted to Amount concept internally
-    # Handle comma-formatted numbers in the data
-    bank_df['internal_amount'] = pd.to_numeric(bank_df[bank_credit_col].astype(str).str.replace(',', ''), errors='coerce')
-    ledger_df['internal_amount'] = pd.to_numeric(ledger_df[ledger_debit_col].astype(str).str.replace(',', ''), errors='coerce')
+    # Convert amount columns to numeric (handle commas and spaces)
+    bank_work['internal_amount'] = pd.to_numeric(
+        bank_work[bank_credit_col].astype(str).str.replace(',', '').str.replace(' ', ''), 
+        errors='coerce'
+    )
+    ledger_work['internal_amount'] = pd.to_numeric(
+        ledger_work[ledger_debit_col].astype(str).str.replace(',', '').str.replace(' ', ''), 
+        errors='coerce'
+    )
     
-    # Prepare for matching by creating comparison keys
-    # For matching, we compare date and absolute amount (converting both Credit and Debit to Amount)
-    # Use a more precise way to handle floating point comparisons
-    bank_df['match_date'] = bank_df['clean_date'].dt.strftime('%Y-%m-%d')
-    ledger_df['match_date'] = ledger_df['clean_date'].dt.strftime('%Y-%m-%d')
+    # Create match keys
+    bank_work['match_date'] = bank_work['clean_date'].dt.strftime('%Y-%m-%d')
+    ledger_work['match_date'] = ledger_work['clean_date'].dt.strftime('%Y-%m-%d')
     
-    # Round amounts to handle floating point precision issues
-    # Both Credit and Debit are converted to Amount for matching purposes
-    bank_df['match_amount'] = bank_df['internal_amount'].abs().round(2)
-    ledger_df['match_amount'] = ledger_df['internal_amount'].abs().round(2)
+    bank_work['match_amount'] = bank_work['internal_amount'].abs().round(2)
+    ledger_work['match_amount'] = ledger_work['internal_amount'].abs().round(2)
     
-    # More flexible approach: Convert to string and remove commas that might be in the data
-    bank_df['match_date'] = bank_df['match_date'].astype(str)
-    ledger_df['match_date'] = ledger_df['match_date'].astype(str)
+    # Store original indices
+    bank_work['original_bank_index'] = bank_work.index
+    ledger_work['original_ledger_index'] = ledger_work.index
     
-    # Perform the matching using a more efficient pandas merge
-    print("Performing reconciliation...")
-    
-    # Initialize status columns
-    bank_df['Status'] = 'Unmatched with Ledger'
-    ledger_df['Status'] = 'Unmatched with Bank'
-    
-    # Add original indices for tracking
-    bank_df['original_index'] = bank_df.index
-    ledger_df['original_index'] = ledger_df.index
+    # Filter out rows with NaT dates or NaN amounts
+    bank_valid = bank_work.dropna(subset=['match_date', 'match_amount'])
+    ledger_valid = ledger_work.dropna(subset=['match_date', 'match_amount'])
     
     # Create temporary DataFrames for matching
-    bank_temp = bank_df[['match_date', 'match_amount', 'original_index']].copy()
-    ledger_temp = ledger_df[['match_date', 'match_amount', 'original_index']].copy()
+    bank_temp = bank_valid[['match_date', 'match_amount', 'original_bank_index']].copy()
+    ledger_temp = ledger_valid[['match_date', 'match_amount', 'original_ledger_index']].copy()
     
-    # Perform the merge to find ALL possible matches first
+    # Perform the merge to find ALL possible matches
     all_matches = pd.merge(
         bank_temp,
         ledger_temp,
@@ -201,123 +394,261 @@ def reconcile_bank_to_ledger(bank_file, ledger_file, output_file):
         suffixes=('_bank', '_ledger')
     )
     
-    # Now implement one-to-one matching to avoid duplicate matches
+    # Implement one-to-one matching
     matched_bank_indices = set()
     matched_ledger_indices = set()
     
-    # Process all possible matches and ensure one-to-one matching
+    # Handle column names
+    bank_idx_col = 'original_bank_index' if 'original_bank_index' in all_matches.columns else 'original_bank_index_bank'
+    ledger_idx_col = 'original_ledger_index' if 'original_ledger_index' in all_matches.columns else 'original_ledger_index_ledger'
+    
     for _, match_row in all_matches.iterrows():
-        bank_idx = match_row['original_index_bank']
-        ledger_idx = match_row['original_index_ledger']
+        bank_idx = match_row[bank_idx_col]
+        ledger_idx = match_row[ledger_idx_col]
         
-        # Only mark as matched if both records haven't been matched yet
         if bank_idx not in matched_bank_indices and ledger_idx not in matched_ledger_indices:
             matched_bank_indices.add(bank_idx)
             matched_ledger_indices.add(ledger_idx)
     
-    # Mark matched records in original DataFrames
-    bank_matched_indices_list = list(matched_bank_indices)
-    ledger_matched_indices_list = list(matched_ledger_indices)
-    
-    # Update status for matched records
-    if bank_matched_indices_list:  # Only update if there are matches
-        bank_df.loc[bank_matched_indices_list, 'Status'] = 'Matched with Ledger'
-    if ledger_matched_indices_list:  # Only update if there are matches
-        ledger_df.loc[ledger_matched_indices_list, 'Status'] = 'Matched with Bank'
-    
-    # Clean up temporary columns
-    bank_df = bank_df.drop('original_index', axis=1)
-    ledger_df = ledger_df.drop('original_index', axis=1)
+    return list(matched_bank_indices), list(matched_ledger_indices)
 
-    # Calculate summary
-    total_bank_records = len(bank_df)
-    matched_bank_records = len(bank_matched_indices_list)
-    unmatched_bank_records = total_bank_records - matched_bank_records
+
+def two_stage_reconciliation(bank_file, ledger1_file, ledger2_file, output_file):
+    """
+    Two-stage reconciliation:
+    Stage 1: Match bank with Ledger 1
+    Stage 2: Match unmatched bank records with Ledger 2 (General Ledger)
+    """
+    print("="*70)
+    print("TWO-STAGE BANK RECONCILIATION SYSTEM")
+    print("="*70)
+    print("STAGE 1: Match Bank Statement with Primary Ledger")
+    print("STAGE 2: Match Unmatched Bank Records with Secondary/General Ledger")
+    print("="*70)
     
-    total_ledger_records = len(ledger_df)
-    matched_ledger_records = len(ledger_matched_indices_list)
-    unmatched_ledger_records = total_ledger_records - matched_ledger_records
+    # ========== LOAD ALL FILES ==========
+    print(f"\nLoading Bank Statement: {bank_file}")
+    if bank_file.lower().endswith('.xlsx') or bank_file.lower().endswith('.xls'):
+        bank_df_raw = pd.read_excel(bank_file, header=None)
+    else:
+        bank_df_raw = pd.read_csv(bank_file, header=None)
     
-    match_rate = (matched_bank_records / min(total_bank_records, total_ledger_records) * 100) if min(total_bank_records, total_ledger_records) > 0 else 0
+    print(f"Loading Primary Ledger: {ledger1_file}")
+    if ledger1_file.lower().endswith('.xlsx') or ledger1_file.lower().endswith('.xls'):
+        ledger1_df_raw = pd.read_excel(ledger1_file, header=None)
+    else:
+        ledger1_df_raw = pd.read_csv(ledger1_file, header=None)
     
-    print("\n=== Reconciliation Summary ===")
-    print(f"BANK STATEMENT (BASE):")
-    print(f"  - Total records: {total_bank_records}")
-    print(f"  - Matched with Ledger: {matched_bank_records}")
-    print(f"  - Unmatched with Ledger: {unmatched_bank_records}")
+    print(f"Loading Secondary/General Ledger: {ledger2_file}")
+    if ledger2_file.lower().endswith('.xlsx') or ledger2_file.lower().endswith('.xls'):
+        ledger2_df_raw = pd.read_excel(ledger2_file, header=None)
+    else:
+        ledger2_df_raw = pd.read_csv(ledger2_file, header=None)
     
-    print(f"\nLEDGER:")
-    print(f"  - Total records: {total_ledger_records}")
-    print(f"  - Matched with Bank: {matched_ledger_records}")
-    print(f"  - Unmatched with Bank: {unmatched_ledger_records}")
+    # ========== EXTRACT TRANSACTION DATA ==========
+    print("\nExtracting transaction data...")
+    bank_df, _ = find_actual_data_rows(bank_df_raw, "bank")
+    ledger1_df, _ = find_actual_data_rows(ledger1_df_raw, "ledger")
+    ledger2_df, _ = find_actual_data_rows(ledger2_df_raw, "ledger")
     
-    print(f"\nMatch Rate: {match_rate:.2f}%")
+    print(f"   Bank records: {len(bank_df)}")
+    print(f"   Ledger 1 records: {len(ledger1_df)}")
+    print(f"   Ledger 2 records: {len(ledger2_df)}")
     
-    # Create output workbook with all required sheets
-    print(f"\nSaving results to: {output_file}")
+    # ========== FIND COLUMNS ==========
+    bank_date_col, bank_credit_col = find_value_date_and_amount_columns(bank_df, "bank")
+    ledger1_date_col, ledger1_debit_col = find_value_date_and_amount_columns(ledger1_df, "ledger")
+    ledger2_date_col, ledger2_debit_col = find_value_date_and_amount_columns(ledger2_df, "ledger")
+    
+    if not all([bank_date_col, bank_credit_col, ledger1_date_col, ledger1_debit_col, ledger2_date_col, ledger2_debit_col]):
+        print("❌ ERROR: Could not find required columns in one or more files")
+        print(f"   Bank: Date={bank_date_col}, Credit={bank_credit_col}")
+        print(f"   Ledger1: Date={ledger1_date_col}, Debit={ledger1_debit_col}")
+        print(f"   Ledger2: Date={ledger2_date_col}, Debit={ledger2_debit_col}")
+        return
+    
+    # ========== STAGE 1: BANK vs LEDGER 1 ==========
+    print("\n" + "="*70)
+    print("STAGE 1: Matching Bank Statement with Primary Ledger")
+    print("="*70)
+    
+    matched_bank_stage1, matched_ledger1 = perform_matching(
+        bank_df, ledger1_df,
+        bank_date_col, bank_credit_col,
+        ledger1_date_col, ledger1_debit_col,
+        stage_number=1
+    )
+    
+    # Initialize Status_1 for all dataframes
+    bank_df['Status_1'] = 'Unmatched_Stage1'
+    bank_df.loc[matched_bank_stage1, 'Status_1'] = 'Matched_Stage1'
+    
+    ledger1_df['Status_1'] = 'Unmatched_Stage1'
+    ledger1_df.loc[matched_ledger1, 'Status_1'] = 'Matched_Stage1'
+    
+    # Stage 1 results
+    total_bank = len(bank_df)
+    matched_stage1_count = len(matched_bank_stage1)
+    unmatched_stage1_count = total_bank - matched_stage1_count
+    
+    print(f"\n[SUCCESS] Stage 1 Results:")
+    print(f"   Total Bank records: {total_bank}")
+    print(f"   Matched with Ledger 1: {matched_stage1_count}")
+    print(f"   Unmatched (going to Stage 2): {unmatched_stage1_count}")
+    
+    # ========== STAGE 2: UNMATCHED BANK vs LEDGER 2 ==========
+    print("\n" + "="*70)
+    print("STAGE 2: Matching Unmatched Bank Records with Secondary Ledger")
+    print("="*70)
+    
+    bank_unmatched_stage1 = bank_df[bank_df['Status_1'] == 'Unmatched_Stage1'].copy()
+    bank_df['Status_2'] = ''
+    
+    if len(bank_unmatched_stage1) == 0:
+        print("[SUCCESS] All bank records matched in Stage 1. No Stage 2 needed.")
+        matched_stage2_count = 0
+        unmatched_stage2_count = 0
+        matched_ledger2 = []
+        ledger2_df['Status_2'] = ''
+    else:
+        matched_bank_stage2_indices, matched_ledger2 = perform_matching(
+            bank_unmatched_stage1, ledger2_df,
+            bank_date_col, bank_credit_col,
+            ledger2_date_col, ledger2_debit_col,
+            stage_number=2
+        )
+        
+        bank_df.loc[bank_df['Status_1'] == 'Unmatched_Stage1', 'Status_2'] = 'Unmatched_Stage2'
+        if matched_bank_stage2_indices:
+            bank_df.loc[matched_bank_stage2_indices, 'Status_2'] = 'Matched_Stage2'
+        
+        ledger2_df['Status_2'] = 'Unmatched_Stage2'
+        if matched_ledger2:
+            ledger2_df.loc[matched_ledger2, 'Status_2'] = 'Matched_Stage2'
+        
+        matched_stage2_count = len(matched_bank_stage2_indices)
+        unmatched_stage2_count = unmatched_stage1_count - matched_stage2_count
+        
+        print(f"\n[SUCCESS] Stage 2 Results:")
+        print(f"   Unmatched from Stage 1: {unmatched_stage1_count}")
+        print(f"   Matched with Ledger 2: {matched_stage2_count}")
+        print(f"   Still Unmatched: {unmatched_stage2_count}")
+    
+    # ========== FINAL SUMMARY ==========
+    print("\n" + "="*70)
+    print("FINAL RECONCILIATION SUMMARY")
+    print("="*70)
+    print(f"\nBANK STATEMENT:")
+    print(f"   Total records: {total_bank}")
+    print(f"   + Matched in Stage 1 (Ledger 1): {matched_stage1_count} ({matched_stage1_count/total_bank*100:.1f}%)")
+    print(f"   + Matched in Stage 2 (Ledger 2): {matched_stage2_count} ({matched_stage2_count/total_bank*100:.1f}%)")
+    print(f"   - Still Unmatched: {unmatched_stage2_count} ({unmatched_stage2_count/total_bank*100:.1f}%)")
+    print(f"\n   Overall Match Rate: {(matched_stage1_count + matched_stage2_count)/total_bank*100:.1f}%")
+    
+    print(f"\nLEDGER 1 (Primary):")
+    print(f"   Total records: {len(ledger1_df)}")
+    print(f"   + Matched with Bank: {len(matched_ledger1)}")
+    print(f"   - Unmatched: {len(ledger1_df) - len(matched_ledger1)}")
+    
+    print(f"\nLEDGER 2 (Secondary/General):")
+    print(f"   Total records: {len(ledger2_df)}")
+    print(f"   + Matched with Bank: {len(matched_ledger2)}")
+    print(f"   - Unmatched: {len(ledger2_df) - len(matched_ledger2)}")
+    
+    # ========== SAVE RESULTS ==========
+    print(f"\n[SAVING] Saving results to: {output_file}")
+    
+    # Add gap columns for visual separation
+    for df in [bank_df, ledger1_df, ledger2_df]:
+        df[' '] = ''
+        df['  '] = ''
+        df['   '] = ''
     
     with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
         # Summary sheet
-        summary_data = {
-            'Metric': [
-                'Total Bank Statement records',
-                'Bank records matched with Ledger',
-                'Bank records unmatched with Ledger',
-                'Total Ledger records',
-                'Ledger records matched with Bank',
-                'Ledger records unmatched with Bank',
-                'Match rate percentage'
-            ],
-            'Value': [
-                total_bank_records,
-                matched_bank_records,
-                unmatched_bank_records,
-                total_ledger_records,
-                matched_ledger_records,
-                unmatched_ledger_records,
-                f"{match_rate:.2f}%"
-            ]
-        }
-        summary_df = pd.DataFrame(summary_data)
+        ledger1_unmatched = len(ledger1_df) - len(matched_ledger1)
+        ledger2_unmatched = len(ledger2_df) - len(matched_ledger2)
+        
+        summary_data = [
+            {'Metric': 'BANK STATEMENT SUMMARY', 'Value': ''},
+            {'Metric': 'Total Bank Statement Records', 'Value': total_bank},
+            {'Metric': '', 'Value': ''},
+            {'Metric': 'STAGE 1: Matching with Primary Ledger', 'Value': ''},
+            {'Metric': 'Matched with Ledger 1', 'Value': matched_stage1_count},
+            {'Metric': 'Unmatched with Ledger 1', 'Value': unmatched_stage1_count},
+            {'Metric': 'Stage 1 Match Rate', 'Value': f"{(matched_stage1_count/total_bank*100) if total_bank > 0 else 0:.2f}%"},
+            {'Metric': '', 'Value': ''},
+            {'Metric': 'STAGE 2: Matching Unmatched with Secondary Ledger', 'Value': ''},
+            {'Metric': 'Matched with Ledger 2', 'Value': matched_stage2_count},
+            {'Metric': 'Still Unmatched after Stage 2', 'Value': unmatched_stage2_count},
+            {'Metric': 'Stage 2 Match Rate', 'Value': f"{(matched_stage2_count/unmatched_stage1_count*100) if unmatched_stage1_count > 0 else 0:.2f}%"},
+            {'Metric': '', 'Value': ''},
+            {'Metric': 'OVERALL BANK RECONCILIATION', 'Value': ''},
+            {'Metric': 'Total Matched (Stage 1 + Stage 2)', 'Value': matched_stage1_count + matched_stage2_count},
+            {'Metric': 'Total Unmatched', 'Value': unmatched_stage2_count},
+            {'Metric': 'Overall Match Rate', 'Value': f"{((matched_stage1_count + matched_stage2_count)/total_bank*100) if total_bank > 0 else 0:.2f}%"},
+            {'Metric': '', 'Value': ''},
+            {'Metric': 'PRIMARY LEDGER (LEDGER 1) SUMMARY', 'Value': ''},
+            {'Metric': 'Total Ledger 1 Records', 'Value': len(ledger1_df)},
+            {'Metric': 'Matched with Bank Statement', 'Value': len(matched_ledger1)},
+            {'Metric': 'Unmatched with Bank Statement', 'Value': ledger1_unmatched},
+            {'Metric': 'Ledger 1 Match Rate', 'Value': f"{(len(matched_ledger1)/len(ledger1_df)*100) if len(ledger1_df) > 0 else 0:.2f}%"},
+            {'Metric': '', 'Value': ''},
+            {'Metric': 'SECONDARY LEDGER (LEDGER 2) SUMMARY', 'Value': ''},
+            {'Metric': 'Total Ledger 2 Records', 'Value': len(ledger2_df)},
+            {'Metric': 'Matched with Bank Statement', 'Value': len(matched_ledger2)},
+            {'Metric': 'Unmatched with Bank Statement', 'Value': ledger2_unmatched},
+            {'Metric': 'Ledger 2 Match Rate', 'Value': f"{(len(matched_ledger2)/len(ledger2_df)*100) if len(ledger2_df) > 0 else 0:.2f}%"},
+        ]
+        summary_df = pd.DataFrame.from_records(summary_data)
         summary_df.to_excel(writer, sheet_name='Summary', index=False)
         
-        # Bank Statement sheet with status (keeping original structure)
-        cols_to_save = [col for col in bank_df.columns if col not in ['clean_date', 'internal_amount', 'match_key']]
-        bank_df[cols_to_save].to_excel(writer, sheet_name='Bank Statement', index=False)
+        # Prepare columns for export
+        def prepare_columns(df):
+            cols = [c for c in df.columns if c not in ['Status_1', 'Status_2', ' ', '  ', '   ', 
+                                                         'clean_date', 'internal_amount', 'match_date', 
+                                                         'match_amount', 'original_bank_index', 
+                                                         'original_ledger_index']]
+            if 'Status_1' in df.columns and 'Status_2' in df.columns:
+                return cols + [' ', '  ', '   ', 'Status_1', ' ', '  ', '   ', 'Status_2', ' ', '  ', '   ']
+            elif 'Status_1' in df.columns:
+                return cols + [' ', '  ', '   ', 'Status_1', ' ', '  ', '   ']
+            elif 'Status_2' in df.columns:
+                return cols + [' ', '  ', '   ', 'Status_2', ' ', '  ', '   ']
+            else:
+                return cols + [' ', '  ', '   ']
         
-        # Bank - Matched sheet
-        bank_matched = bank_df[bank_df['Status'] == 'Matched with Ledger']
-        bank_matched[cols_to_save].to_excel(writer, sheet_name='Bank - Matched', index=False)
+        # Bank sheets
+        bank_cols = prepare_columns(bank_df)
+        bank_df[bank_cols].to_excel(writer, sheet_name='Bank Statement (All)', index=False)
+        bank_df[bank_df['Status_1'] == 'Matched_Stage1'][bank_cols].to_excel(writer, sheet_name='Bank - Matched_Stage1', index=False)
+        bank_df[bank_df['Status_1'] == 'Unmatched_Stage1'][bank_cols].to_excel(writer, sheet_name='Bank - Unmatched_Stage1', index=False)
+        bank_df[bank_df['Status_2'] == 'Matched_Stage2'][bank_cols].to_excel(writer, sheet_name='Bank - Matched_Stage2', index=False)
+        bank_df[bank_df['Status_2'] == 'Unmatched_Stage2'][bank_cols].to_excel(writer, sheet_name='Bank - Unmatched_Stage2', index=False)
         
-        # Bank - Unmatched sheet
-        bank_unmatched = bank_df[bank_df['Status'] == 'Unmatched with Ledger']
-        bank_unmatched[cols_to_save].to_excel(writer, sheet_name='Bank - Unmatched', index=False)
+        # Ledger 1 sheets
+        ledger1_cols = prepare_columns(ledger1_df)
+        ledger1_df[ledger1_cols].to_excel(writer, sheet_name='Ledger 1 (All)', index=False)
+        ledger1_df[ledger1_df['Status_1'] == 'Matched_Stage1'][ledger1_cols].to_excel(writer, sheet_name='Ledger 1 - Matched_Stage1', index=False)
+        ledger1_df[ledger1_df['Status_1'] == 'Unmatched_Stage1'][ledger1_cols].to_excel(writer, sheet_name='Ledger 1 - Unmatched_Stage1', index=False)
         
-        # Ledger sheet with status (keeping original structure)
-        cols_to_save_ledger = [col for col in ledger_df.columns if col not in ['clean_date', 'internal_amount', 'match_key']]
-        ledger_df[cols_to_save_ledger].to_excel(writer, sheet_name='Ledger', index=False)
-        
-        # Ledger - Matched sheet
-        ledger_matched = ledger_df[ledger_df['Status'] == 'Matched with Bank']
-        ledger_matched[cols_to_save_ledger].to_excel(writer, sheet_name='Ledger - Matched', index=False)
-        
-        # Ledger - Unmatched sheet
-        ledger_unmatched = ledger_df[ledger_df['Status'] == 'Unmatched with Bank']
-        ledger_unmatched[cols_to_save_ledger].to_excel(writer, sheet_name='Ledger - Unmatched', index=False)
+        # Ledger 2 sheets
+        ledger2_cols = prepare_columns(ledger2_df)
+        ledger2_df[ledger2_cols].to_excel(writer, sheet_name='Ledger 2 (All)', index=False)
+        ledger2_df[ledger2_df['Status_2'] == 'Matched_Stage2'][ledger2_cols].to_excel(writer, sheet_name='Ledger 2 - Matched_Stage2', index=False)
+        ledger2_df[ledger2_df['Status_2'] == 'Unmatched_Stage2'][ledger2_cols].to_excel(writer, sheet_name='Ledger 2 - Unmatched_Stage2', index=False)
     
-    print("Results saved successfully!")
-    print("\nOutput file contains:")
-    print("  1. Summary - Overview of reconciliation")
-    print("  2. Bank Statement - Full data with status")
-    print("  3. Bank - Matched - Only matched records")
-    print("  4. Bank - Unmatched - Only unmatched records")
-    print("  5. Ledger - Full data with status")
-    print("  6. Ledger - Matched - Only matched records")
-    print("  7. Ledger - Unmatched - Only unmatched records")
+    print("\n[SUCCESS] Results saved successfully!")
+    print("\n[INFO] Output file contains:")
+    print("   1. Summary - Complete reconciliation overview")
+    print("   2-6. Bank Statement sheets (All, Matched_Stage1, Unmatched_Stage1, Matched_Stage2, Unmatched_Stage2)")
+    print("   7-9. Ledger 1 sheets (All, Matched_Stage1, Unmatched_Stage1)")
+    print("   10-12. Ledger 2 sheets (All, Matched_Stage2, Unmatched_Stage2)")
     
-    print("\n" + "="*60)
-    print("RECONCILIATION COMPLETE!")
-    print("="*60)
+    print("\n" + "="*70)
+    print("TWO-STAGE RECONCILIATION COMPLETE!")
+    print("="*70)
+
 
 def main():
     """
@@ -325,11 +656,18 @@ def main():
     """
     # Read file paths from environment variables
     BANK_FILE = os.getenv('BANK_STATEMENT_FILE_PATH', 'sample_bank_statement.xlsx')
-    LEDGER_FILE = os.getenv('LEDGER_FILE_PATH', 'sample_ledger.xlsx')
-    OUTPUT_FILE = os.getenv('OUTPUT_FILE_PATH', 'Matched_Results_final.xlsx')
+    LEDGER1_FILE = os.getenv('LEDGER_FILE_PATH', 'sample_ledger.xlsx')
+    LEDGER2_FILE = os.getenv('LEDGER2_FILE_PATH', 'sample_general_ledger.xlsx')
+    OUTPUT_FILE = os.getenv('OUTPUT_FILE_PATH', 'Two_Stage_Reconciliation_Results.xlsx')
     
-    # Run the reconciliation
-    reconcile_bank_to_ledger(BANK_FILE, LEDGER_FILE, OUTPUT_FILE)
+    # Debug print to confirm the loaded values
+    print(f"DEBUG: Loaded BANK_FILE = {BANK_FILE}")
+    print(f"DEBUG: Loaded LEDGER1_FILE = {LEDGER1_FILE}")
+    print(f"DEBUG: Loaded LEDGER2_FILE = {LEDGER2_FILE}")
+    print(f"DEBUG: Loaded OUTPUT_FILE = {OUTPUT_FILE}")
+    
+    # Run the two-stage reconciliation
+    two_stage_reconciliation(BANK_FILE, LEDGER1_FILE, LEDGER2_FILE, OUTPUT_FILE)
 
 if __name__ == "__main__":
     main()
