@@ -105,10 +105,10 @@ def perform_reconciliation(bank_file, ledger_file, output_file):
         print("❌ ERROR: Could not find required columns.")
         return
 
-    print(f"\n✓ Bank Date Column: {bank_date_col}")
-    print(f"✓ Bank Credit Column: {bank_credit_col}")
-    print(f"✓ Ledger Date Column: {ledger_date_col}")
-    print(f"✓ Ledger Debit Column: {ledger_debit_col}")
+    print(f"\n[SUCCESS] Bank Date Column: {bank_date_col}")
+    print(f"[SUCCESS] Bank Credit Column: {bank_credit_col}")
+    print(f"[SUCCESS] Ledger Date Column: {ledger_date_col}")
+    print(f"[SUCCESS] Ledger Debit Column: {ledger_debit_col}")
 
     # Prepare data
     bank_work = bank_df.copy()
@@ -187,19 +187,45 @@ def perform_reconciliation(bank_file, ledger_file, output_file):
         summary_df = pd.DataFrame(summary_data)
         summary_df.to_excel(writer, sheet_name='Summary', index=False)
 
+        # Function to insert 3 blank columns before Status
+        def insert_blank_cols_before_status(df):
+            if 'Status' in df.columns:
+                status_idx = df.columns.get_loc('Status')
+                # Create 3 new blank columns with different temporary names to avoid conflicts
+                df.insert(status_idx, 'temp_col_1', ['' for _ in range(len(df))])
+                df.insert(status_idx + 1, 'temp_col_2', ['' for _ in range(len(df))])
+                df.insert(status_idx + 2, 'temp_col_3', ['' for _ in range(len(df))])
+                # Rename them to empty strings, ensuring they're different
+                df.rename(columns={
+                    'temp_col_1': '', 
+                    'temp_col_2': ' ', 
+                    'temp_col_3': '  '
+                }, inplace=True)
+            return df
+
         # Bank Statement Sheets
-        bank_df.to_excel(writer, sheet_name='Bank - All', index=False)
-        bank_matched = bank_df[bank_df['Status'] == 'Matched']
-        bank_matched.to_excel(writer, sheet_name='Bank - Matched', index=False)
-        bank_unmatched = bank_df[bank_df['Status'] == 'Unmatched']
-        bank_unmatched.to_excel(writer, sheet_name='Bank - Unmatched', index=False)
+        bank_df_with_blanks = insert_blank_cols_before_status(bank_df.copy())
+        bank_df_with_blanks.to_excel(writer, sheet_name='Bank - All', index=False)
+        
+        bank_matched = bank_df[bank_df['Status'] == 'Matched'].copy()
+        bank_matched_with_blanks = insert_blank_cols_before_status(bank_matched)
+        bank_matched_with_blanks.to_excel(writer, sheet_name='Bank - Matched', index=False)
+        
+        bank_unmatched = bank_df[bank_df['Status'] == 'Unmatched'].copy()
+        bank_unmatched_with_blanks = insert_blank_cols_before_status(bank_unmatched)
+        bank_unmatched_with_blanks.to_excel(writer, sheet_name='Bank - Unmatched', index=False)
 
         # Ledger Sheets
-        ledger_df.to_excel(writer, sheet_name='Ledger - All', index=False)
-        ledger_matched = ledger_df[ledger_df['Status'] == 'Matched']
-        ledger_matched.to_excel(writer, sheet_name='Ledger - Matched', index=False)
-        ledger_unmatched = ledger_df[ledger_df['Status'] == 'Unmatched']
-        ledger_unmatched.to_excel(writer, sheet_name='Ledger - Unmatched', index=False)
+        ledger_df_with_blanks = insert_blank_cols_before_status(ledger_df.copy())
+        ledger_df_with_blanks.to_excel(writer, sheet_name='Ledger - All', index=False)
+        
+        ledger_matched = ledger_df[ledger_df['Status'] == 'Matched'].copy()
+        ledger_matched_with_blanks = insert_blank_cols_before_status(ledger_matched)
+        ledger_matched_with_blanks.to_excel(writer, sheet_name='Ledger - Matched', index=False)
+        
+        ledger_unmatched = ledger_df[ledger_df['Status'] == 'Unmatched'].copy()
+        ledger_unmatched_with_blanks = insert_blank_cols_before_status(ledger_unmatched)
+        ledger_unmatched_with_blanks.to_excel(writer, sheet_name='Ledger - Unmatched', index=False)
 
     print(f"\n[SUCCESS] Results saved to: {output_file}")
     print("\nSheets created:")
